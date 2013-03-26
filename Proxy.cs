@@ -42,7 +42,6 @@ namespace Emit.InterfaceProxy
         public Type Create(string assemblyName, string className)
         {
             Type res = null;
-            //TypeBuilder typeBuilder = GetTypeBuilder(assemblyName, className);
 
             AssemblyName assembly = new AssemblyName(assemblyName);
             AssemblyBuilder assemblyBuilder = Thread.GetDomain()
@@ -64,25 +63,12 @@ namespace Emit.InterfaceProxy
             return res;
         }
 
-        //private TypeBuilder GetTypeBuilder(string assemblyName, string className)
-        //{
-        //    AssemblyName assembly = new AssemblyName(assemblyName);
-        //    AssemblyBuilder assemblyBuilder = Thread.GetDomain()
-        //                                            .DefineDynamicAssembly(assembly, AssemblyBuilderAccess.RunAndSave);
-        //    ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyBuilder.GetName().Name + ".dll");
-        //    TypeBuilder typeBuilder = moduleBuilder.DefineType(string.Format("{0}.{1}", assemblyName, className),
-        //                                                       TypeAttributes.Class | TypeAttributes.Public, this.GetType());
-        //    typeBuilder.AddInterfaceImplementation(_interfaceType);
-        //    return typeBuilder;
-        //}
-
         private void GenerateMember(TypeBuilder typeBuilder, MemberInfo info)
         {
             switch (info.MemberType)
             {
                 case MemberTypes.Event:
                     GenerateEvent(typeBuilder, (EventInfo)info);
-                    //throw new NotSupportedException("Can't proxy events");
                     break;
                 case MemberTypes.Method:
                     {
@@ -107,7 +93,7 @@ namespace Emit.InterfaceProxy
         private void GenerateEvent(TypeBuilder typeBuilder, EventInfo info)
         {
             EventBuilder eventBuilder = typeBuilder.DefineEvent(info.Name, info.Attributes, info.EventHandlerType);
-            //FieldBuilder eventField = _typeBuilder.DefineField(info.Name, info.EventHandlerType, FieldAttributes.Private);
+
             CustomAttributeBuilder attr = GetCustumeAttributes(info);
             if (attr != null)
             {
