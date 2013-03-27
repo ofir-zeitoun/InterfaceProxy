@@ -58,9 +58,19 @@ namespace Emit.InterfaceProxy
 
             res = typeBuilder.CreateType();
 
-            assemblyBuilder.Save(assemblyName + ".dll");
+            string assemblyFileName;
+            if (ShouldSaveAssembly(out assemblyFileName))
+            {
+                assemblyBuilder.Save(assemblyFileName);
+            }
 
             return res;
+        }
+
+        protected virtual bool ShouldSaveAssembly(out string assemblyFileName)
+        {
+            assemblyFileName = null;
+            return false;
         }
 
         private void GenerateMember(TypeBuilder typeBuilder, MemberInfo info)
