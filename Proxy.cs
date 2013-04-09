@@ -46,7 +46,7 @@ namespace Emit.InterfaceProxy
             AssemblyName assembly = new AssemblyName(assemblyName);
             AssemblyBuilder assemblyBuilder = Thread.GetDomain()
                                                     .DefineDynamicAssembly(assembly, AssemblyBuilderAccess.RunAndSave);
-            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyBuilder.GetName().Name + ".dll");
+            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule(string.Format("{0}.dll", assemblyName));
             TypeBuilder typeBuilder = moduleBuilder.DefineType(string.Format("{0}.{1}", assemblyName, className),
                                                                TypeAttributes.Class | TypeAttributes.Public, this.GetType());
             typeBuilder.AddInterfaceImplementation(_interfaceType);
@@ -110,9 +110,9 @@ namespace Emit.InterfaceProxy
                 eventBuilder.SetCustomAttribute(attr);
             }
 
-            MethodInfo addEvent = _interfaceType.GetMethod("add_" + info.Name);
+            MethodInfo addEvent = _interfaceType.GetMethod(string.Format("add_{0}", info.Name));
             eventBuilder.SetAddOnMethod(GenerateMethod(typeBuilder, addEvent));
-            MethodInfo removeEvent = _interfaceType.GetMethod("remove_" + info.Name);
+            MethodInfo removeEvent = _interfaceType.GetMethod(string.Format("remove_{0}", info.Name);
             eventBuilder.SetRemoveOnMethod(GenerateMethod(typeBuilder, removeEvent));
 
         }
@@ -129,7 +129,7 @@ namespace Emit.InterfaceProxy
 
             if (info.CanRead)
             {
-                MethodInfo methodInfo = _interfaceType.GetMethod("get_" + info.Name);
+                MethodInfo methodInfo = _interfaceType.GetMethod(string.Format("get_{0}", info.Name));
                 MethodBuilder method = GenerateMethod(typeBuilder, methodInfo);
 
                 propertyBuilder.SetGetMethod(method);
@@ -137,7 +137,7 @@ namespace Emit.InterfaceProxy
 
             if (info.CanWrite)
             {
-                MethodInfo methodInfo = _interfaceType.GetMethod("set_" + info.Name);
+                MethodInfo methodInfo = _interfaceType.GetMethod(string.Format("set_{0}", info.Name));
                 MethodBuilder method = GenerateMethod(typeBuilder, methodInfo);
 
                 propertyBuilder.SetSetMethod(method);
