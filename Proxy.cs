@@ -17,6 +17,7 @@ namespace Emit.InterfaceProxy
         private static readonly MethodInfo _getTypeFromHandle;
         private readonly MethodInfo _canExecute;
         protected readonly Type _interfaceType;
+        private Type _createdType = null;
 
         static Proxy()
         {
@@ -39,9 +40,12 @@ namespace Emit.InterfaceProxy
             return Activator.CreateInstance(returnType);
         }
 
-        public Type Create(string assemblyName, string className)
+        public Type CreateType(string assemblyName, string className)
         {
-            Type res = null;
+            if (_createdType != null)
+            {
+                return _createdType;
+            }
 
             AssemblyName assembly = new AssemblyName(assemblyName);
             AssemblyBuilder assemblyBuilder = Thread.GetDomain()
@@ -56,7 +60,7 @@ namespace Emit.InterfaceProxy
                 GenerateMember(typeBuilder, memberInfo);
             }
 
-            res = typeBuilder.CreateType();
+            _createdType = typeBuilder.CreateType();
 
             string assemblyFileName;
             if (ShouldSaveAssembly(out assemblyFileName))
@@ -64,7 +68,24 @@ namespace Emit.InterfaceProxy
                 assemblyBuilder.Save(assemblyFileName);
             }
 
-            return res;
+            return _createdType;
+        }
+
+        public T CreateInstance(string assemblyName, string className)
+        {
+            Type type = CreateType(assemblyName, className);
+            object instance = Activator.CreateInstance(type);
+            return (T)instance;
+        }
+
+        public T CreateInstance()
+        {
+            if (_createdType == null)
+            {
+                throw new InvalidOperationException("Please call CreateType() first");
+            }
+            object instance = Activator.CreateInstance(_createdType);
+            return (T) instance;
         }
 
         protected virtual bool ShouldSaveAssembly(out string assemblyFileName)
