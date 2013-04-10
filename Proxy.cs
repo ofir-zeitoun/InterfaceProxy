@@ -366,6 +366,9 @@ namespace Emit.InterfaceProxy
 
         private CustomAttributeBuilder GetCustumeAttributeBuilder(Expression<Func<Attribute>> attributeExpression)
         {
+            //Copyright (c) 2012 Michiel van Oosterhout
+            //http://attributebuilder.codeplex.com/
+            
             ConstructorInfo constructor = null;
             List<object> constructorArgs = new List<object>();
             List<PropertyInfo> namedProperties = new List<PropertyInfo>();
