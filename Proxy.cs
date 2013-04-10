@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Threading;
@@ -18,6 +19,7 @@ namespace Emit.InterfaceProxy
         private readonly MethodInfo _canExecute;
         protected readonly Type _interfaceType;
         private Type _createdType = null;
+        protected bool _shouldSaveAssembly;
 
         static Proxy()
         {
@@ -26,6 +28,7 @@ namespace Emit.InterfaceProxy
 
         protected Proxy()
         {
+            _shouldSaveAssembly = false;
             _canExecute = this.GetType().GetMethod("CanExecute", BindingFlags.Instance | BindingFlags.NonPublic);
             _interfaceType = typeof (T);
         }
@@ -46,13 +49,16 @@ namespace Emit.InterfaceProxy
             {
                 return _createdType;
             }
+            string assemblyFileName = string.Format("{0}.dll", assemblyName);
 
             AssemblyName assembly = new AssemblyName(assemblyName);
-            AssemblyBuilder assemblyBuilder = Thread.GetDomain()
-                                                    .DefineDynamicAssembly(assembly, AssemblyBuilderAccess.RunAndSave);
-            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule(string.Format("{0}.dll", assemblyName));
+            AssemblyBuilder assemblyBuilder = Thread.GetDomain().DefineDynamicAssembly(assembly, AssemblyBuilderAccess.RunAndSave);
+
+            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyFileName);
+
             TypeBuilder typeBuilder = moduleBuilder.DefineType(string.Format("{0}.{1}", assemblyName, className),
                                                                TypeAttributes.Class | TypeAttributes.Public, this.GetType());
+
             typeBuilder.AddInterfaceImplementation(_interfaceType);
 
             foreach (MemberInfo memberInfo in _interfaceType.GetMembers())
@@ -62,8 +68,7 @@ namespace Emit.InterfaceProxy
 
             _createdType = typeBuilder.CreateType();
 
-            string assemblyFileName;
-            if (ShouldSaveAssembly(out assemblyFileName))
+            if (_shouldSaveAssembly)
             {
                 assemblyBuilder.Save(assemblyFileName);
             }
@@ -86,12 +91,6 @@ namespace Emit.InterfaceProxy
             }
             object instance = Activator.CreateInstance(_createdType);
             return (T) instance;
-        }
-
-        protected virtual bool ShouldSaveAssembly(out string assemblyFileName)
-        {
-            assemblyFileName = null;
-            return false;
         }
 
         private void GenerateMember(TypeBuilder typeBuilder, MemberInfo info)
@@ -134,7 +133,6 @@ namespace Emit.InterfaceProxy
             eventBuilder.SetAddOnMethod(GenerateMethod(typeBuilder, addEvent));
             MethodInfo removeEvent = _interfaceType.GetMethod(string.Format("remove_{0}", info.Name));
             eventBuilder.SetRemoveOnMethod(GenerateMethod(typeBuilder, removeEvent));
-
         }
 
         private void GenerateProperty(TypeBuilder typeBuilder, PropertyInfo info)
@@ -246,64 +244,6 @@ namespace Emit.InterfaceProxy
 
         }
 
-
-        private IEnumerable<CustomAttributeBuilder> GetCustumeAttributeBuilders(MemberInfo memberInfo)
-        {
-            foreach (CustomAttributeData attributeData in memberInfo.GetCustomAttributesData())
-            {
-                yield return GetCustumeAttributeBuilder(attributeData);
-            }
-            foreach (Attribute attribute in GetAdditionalAttributes(memberInfo))
-            {
-                yield return GetCustumeAttributeBuilder(attribute);
-            }
-        }
-
-        protected IEnumerable<Attribute> GetAdditionalAttributes(MemberInfo memberInfo)
-        {
-            yield break;
-        }
-
-        private CustomAttributeBuilder GetCustumeAttributeBuilder(Attribute attribute)
-        {
-            throw new NotImplementedException("Please do not overide GetAdditionalAttributes(MemberInfo memberInfo) yet.");
-        }
-
-        private CustomAttributeBuilder GetCustumeAttributeBuilder(CustomAttributeData attributeData)
-        {
-            List<object> namedFieldValues = new List<object>();
-            List<FieldInfo> fields = new List<FieldInfo>();
-            List<object> constructorArguments = new List<object>();
-
-            foreach (CustomAttributeTypedArgument cata in attributeData.ConstructorArguments)
-            {
-                constructorArguments.Add(cata.Value);
-            }
-
-            if (attributeData.NamedArguments.Count > 0)
-            {
-                FieldInfo[] possibleFields = attributeData.GetType().GetFields();
-
-                foreach (CustomAttributeNamedArgument cana in attributeData.NamedArguments)
-                {
-                    for (int x = 0; x < possibleFields.Length; x++)
-                    {
-                        if (possibleFields[x].Name.CompareTo(cana.MemberInfo.Name) == 0)
-                        {
-                            fields.Add(possibleFields[x]);
-                            namedFieldValues.Add(cana.TypedValue.Value);
-                        }
-                    }
-                }
-            }
-
-            return new CustomAttributeBuilder(
-                attributeData.Constructor, 
-                constructorArguments.ToArray(), 
-                fields.ToArray(), 
-                namedFieldValues.ToArray());
-        }
-
         private void BuildCanExecute(MethodInfo info, MethodBuilder method, LocalBuilder types, LocalBuilder returnValue, Label endOfMethod)
         {
 
@@ -405,6 +345,129 @@ namespace Emit.InterfaceProxy
 
         protected abstract void BuildMethodBody(MethodInfo info, MethodBuilder method, LocalBuilder types, LocalBuilder returnValue, Label endOfMethod);
 
+        #region Custome Attribute Builder
+
+        private IEnumerable<CustomAttributeBuilder> GetCustumeAttributeBuilders(MemberInfo memberInfo)
+        {
+            foreach (CustomAttributeData attributeData in memberInfo.GetCustomAttributesData())
+            {
+                yield return GetCustumeAttributeBuilder(attributeData);
+            }
+            foreach (Expression<Func<Attribute>> expression in GetAdditionalAttributes(memberInfo))
+            {
+                yield return GetCustumeAttributeBuilder(expression);
+            }
+        }
+
+        protected virtual IEnumerable<Expression<Func<Attribute>>> GetAdditionalAttributes(MemberInfo memberInfo)
+        {
+            yield break;
+        }
+
+        private CustomAttributeBuilder GetCustumeAttributeBuilder(Expression<Func<Attribute>> attributeExpression)
+        {
+            ConstructorInfo constructor = null;
+            List<object> constructorArgs = new List<object>();
+            List<PropertyInfo> namedProperties = new List<PropertyInfo>();
+            List<object> propertyValues = new List<object>();
+            List<FieldInfo> namedFields = new List<FieldInfo>();
+            List<object> fieldValues = new List<object>();
+
+            switch (attributeExpression.Body.NodeType)
+            {
+                case ExpressionType.New:
+                    constructor = GetConstructor((NewExpression)attributeExpression.Body, constructorArgs);
+                    break;
+                case ExpressionType.MemberInit:
+                    MemberInitExpression initExpression = (MemberInitExpression)attributeExpression.Body;
+                    constructor = GetConstructor(initExpression.NewExpression, constructorArgs);
+
+                    IEnumerable<MemberAssignment> bindings = from b in initExpression.Bindings
+                                                             where b.BindingType == MemberBindingType.Assignment
+                                                             select b as MemberAssignment;
+
+                    foreach (MemberAssignment assignment in bindings)
+                    {
+                        LambdaExpression lambda = Expression.Lambda(assignment.Expression);
+                        object value = lambda.Compile().DynamicInvoke();
+                        switch (assignment.Member.MemberType)
+                        {
+                            case MemberTypes.Field:
+                                namedFields.Add((FieldInfo)assignment.Member);
+                                fieldValues.Add(value);
+                                break;
+                            case MemberTypes.Property:
+                                namedProperties.Add((PropertyInfo)assignment.Member);
+                                propertyValues.Add(value);
+                                break;
+                        }
+                    }
+                    break;
+                default:
+                    throw new ArgumentException("UnSupportedExpression", "attributeExpression");
+            }
+
+            return new CustomAttributeBuilder(
+                constructor,
+                constructorArgs.ToArray(),
+                namedProperties.ToArray(),
+                propertyValues.ToArray(),
+                namedFields.ToArray(),
+                fieldValues.ToArray());
+        }
+
+        private ConstructorInfo GetConstructor(NewExpression expression, List<object> constructorArgs)
+        {
+            foreach (Expression arg in expression.Arguments)
+            {
+                LambdaExpression lambda = Expression.Lambda(arg);
+                object value = lambda.Compile().DynamicInvoke();
+                constructorArgs.Add(value);
+            }
+            return expression.Constructor;
+        }
+
+        private CustomAttributeBuilder GetCustumeAttributeBuilder(Attribute attribute)
+        {
+            throw new NotImplementedException("Please do not overide GetAdditionalAttributes(MemberInfo memberInfo) yet.");
+        }
+
+        private CustomAttributeBuilder GetCustumeAttributeBuilder(CustomAttributeData attributeData)
+        {
+            List<object> namedFieldValues = new List<object>();
+            List<FieldInfo> fields = new List<FieldInfo>();
+            List<object> constructorArguments = new List<object>();
+
+            foreach (CustomAttributeTypedArgument cata in attributeData.ConstructorArguments)
+            {
+                constructorArguments.Add(cata.Value);
+            }
+
+            if (attributeData.NamedArguments.Count > 0)
+            {
+                FieldInfo[] possibleFields = attributeData.GetType().GetFields();
+
+                foreach (CustomAttributeNamedArgument cana in attributeData.NamedArguments)
+                {
+                    for (int x = 0; x < possibleFields.Length; x++)
+                    {
+                        if (possibleFields[x].Name.CompareTo(cana.MemberInfo.Name) == 0)
+                        {
+                            fields.Add(possibleFields[x]);
+                            namedFieldValues.Add(cana.TypedValue.Value);
+                        }
+                    }
+                }
+            }
+
+            return new CustomAttributeBuilder(
+                attributeData.Constructor,
+                constructorArguments.ToArray(),
+                fields.ToArray(),
+                namedFieldValues.ToArray());
+        }
+
+        #endregion
     }
 
 }
