@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -104,15 +104,14 @@ namespace Emit.InterfaceProxy
         {
             EventBuilder eventBuilder = typeBuilder.DefineEvent(info.Name, info.Attributes, info.EventHandlerType);
 
-            CustomAttributeBuilder attr = GetCustumeAttributes(info);
-            if (attr != null)
+            foreach (CustomAttributeBuilder attributeBuilder in GetCustumeAttributeBuilders(info))
             {
-                eventBuilder.SetCustomAttribute(attr);
+                eventBuilder.SetCustomAttribute(attributeBuilder);
             }
 
             MethodInfo addEvent = _interfaceType.GetMethod(string.Format("add_{0}", info.Name));
             eventBuilder.SetAddOnMethod(GenerateMethod(typeBuilder, addEvent));
-            MethodInfo removeEvent = _interfaceType.GetMethod(string.Format("remove_{0}", info.Name);
+            MethodInfo removeEvent = _interfaceType.GetMethod(string.Format("remove_{0}", info.Name));
             eventBuilder.SetRemoveOnMethod(GenerateMethod(typeBuilder, removeEvent));
 
         }
@@ -121,10 +120,9 @@ namespace Emit.InterfaceProxy
         {
             PropertyBuilder propertyBuilder = typeBuilder.DefineProperty(info.Name, info.Attributes, info.PropertyType, null);
 
-            CustomAttributeBuilder attr = GetCustumeAttributes(info);
-            if (attr != null)
+            foreach (CustomAttributeBuilder attributeBuilder in GetCustumeAttributeBuilders(info))
             {
-                propertyBuilder.SetCustomAttribute(attr);
+                propertyBuilder.SetCustomAttribute(attributeBuilder);
             }
 
             if (info.CanRead)
@@ -156,11 +154,11 @@ namespace Emit.InterfaceProxy
                                                              info.ReturnType,
                                                              paramTypes);
 
-            CustomAttributeBuilder attr = GetCustumeAttributes(info);
-            if (attr != null)
+            foreach (CustomAttributeBuilder attributeBuilder in GetCustumeAttributeBuilders(info))
             {
-                method.SetCustomAttribute(attr);
+                method.SetCustomAttribute(attributeBuilder);
             }
+
 
             int i = 0;
             // define return type
@@ -227,49 +225,62 @@ namespace Emit.InterfaceProxy
 
         }
 
-        private static CustomAttributeBuilder GetCustumeAttributes(MemberInfo info)
+
+        private IEnumerable<CustomAttributeBuilder> GetCustumeAttributeBuilders(MemberInfo memberInfo)
         {
-            CustomAttributeBuilder ct = null;
-
-            foreach (CustomAttributeData attribute in CustomAttributeData.GetCustomAttributes(info))
+            foreach (CustomAttributeData attributeData in memberInfo.GetCustomAttributesData())
             {
-                List<object> namedFieldValues = new List<object>();
-                List<FieldInfo> fields = new List<FieldInfo>();
-                List<object> constructorArguments = new List<object>();
-                foreach (CustomAttributeTypedArgument cata in attribute.ConstructorArguments)
-                {
-                    constructorArguments.Add(cata.Value);
-                }
-                if (attribute.NamedArguments.Count > 0)
-                {
-                    FieldInfo[] possibleFields = attribute.GetType().GetFields();
+                yield return GetCustumeAttributeBuilder(attributeData);
+            }
+            foreach (Attribute attribute in GetAdditionalAttributes(memberInfo))
+            {
+                yield return GetCustumeAttributeBuilder(attribute);
+            }
+        }
 
-                    foreach (CustomAttributeNamedArgument cana in attribute.NamedArguments)
+        protected IEnumerable<Attribute> GetAdditionalAttributes(MemberInfo memberInfo)
+        {
+            yield break;
+        }
+
+        private CustomAttributeBuilder GetCustumeAttributeBuilder(Attribute attribute)
+        {
+            throw new NotImplementedException("Please do not overide GetAdditionalAttributes(MemberInfo memberInfo) yet.");
+        }
+
+        private CustomAttributeBuilder GetCustumeAttributeBuilder(CustomAttributeData attributeData)
+        {
+            List<object> namedFieldValues = new List<object>();
+            List<FieldInfo> fields = new List<FieldInfo>();
+            List<object> constructorArguments = new List<object>();
+
+            foreach (CustomAttributeTypedArgument cata in attributeData.ConstructorArguments)
+            {
+                constructorArguments.Add(cata.Value);
+            }
+
+            if (attributeData.NamedArguments.Count > 0)
+            {
+                FieldInfo[] possibleFields = attributeData.GetType().GetFields();
+
+                foreach (CustomAttributeNamedArgument cana in attributeData.NamedArguments)
+                {
+                    for (int x = 0; x < possibleFields.Length; x++)
                     {
-                        for (int x = 0; x < possibleFields.Length; x++)
+                        if (possibleFields[x].Name.CompareTo(cana.MemberInfo.Name) == 0)
                         {
-                            if (possibleFields[x].Name.CompareTo(cana.MemberInfo.Name) == 0)
-                            {
-                                fields.Add(possibleFields[x]);
-                                namedFieldValues.Add(cana.TypedValue.Value);
-                            }
+                            fields.Add(possibleFields[x]);
+                            namedFieldValues.Add(cana.TypedValue.Value);
                         }
-
-
                     }
                 }
-
-                if (namedFieldValues.Count > 0)
-                {
-                    ct = new CustomAttributeBuilder(attribute.Constructor, constructorArguments.ToArray(), fields.ToArray(), namedFieldValues.ToArray());
-                }
-                else
-                {
-                    ct = new CustomAttributeBuilder(attribute.Constructor, constructorArguments.ToArray());
-                }
-
             }
-            return ct;
+
+            return new CustomAttributeBuilder(
+                attributeData.Constructor, 
+                constructorArguments.ToArray(), 
+                fields.ToArray(), 
+                namedFieldValues.ToArray());
         }
 
         private void BuildCanExecute(MethodInfo info, MethodBuilder method, LocalBuilder types, LocalBuilder returnValue, Label endOfMethod)
